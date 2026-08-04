@@ -1,0 +1,40 @@
+# Copyright (c) 2026 The ZMK Contributors
+# SPDX-License-Identifier: MIT
+
+description: >
+  Watches one keymap position and raises a zmk_bootloader_warning event
+  partway through a hold, gated on a layer being active. Meant to pair with
+  &bootloader_hold (see this repo's dts/behaviors/bootloader_hold.dtsi) so a
+  keyboard with a display/LEDs can react before the actual 3-second-hold
+  reboot fires -- this node only detects and announces, it never touches
+  &bootloader itself. Declare one instance per watched position (e.g. one
+  per half of a split keyboard's independent bootloader entry).
+
+compatible: "zmk,bootloader-warn"
+
+properties:
+  layer:
+    type: int
+    required: true
+    description: >
+      Only arms if this layer is active at the moment the watched position
+      is pressed. Prevents firing from ordinary typing on a position that's
+      an ordinary letter on every other layer.
+  position:
+    type: int
+    required: true
+    description: The keymap position to watch (same numbering as key-positions elsewhere).
+  warn-after-ms:
+    type: int
+    default: 1000
+    description: How long the position must be held (with the layer active) before the event fires.
+  latch:
+    type: boolean
+    description: >
+      If set, the event never fires with active=false -- once warned,
+      stays warned in the eyes of any listener, even if the position is
+      released before the paired &bootloader_hold's own tapping-term-ms
+      elapses and the real reboot never happens. If unset (default), an
+      active=false event fires immediately on release if the warning had
+      already fired, letting a listener revert whatever it did (e.g. put
+      a display back to normal).

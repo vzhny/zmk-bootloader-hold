@@ -22,9 +22,10 @@ free layers and positions, so there's no generic "just add this layer" — the
 [Worked example](#worked-example-an-arm--bootloader-layer-pair) below is a
 pattern to adapt, not a drop-in layer.
 
-**Doesn't (yet):** any display/LED feedback while the hold is in progress.
-If your keyboard has a screen, you're on your own for wiring that up right
-now — see [Roadmap](#roadmap).
+**Doesn't:** deciding what to actually show on a display or LED. The
+optional `zmk,bootloader-warn` node (below) tells you *when* to react via a
+ZMK event — writing the actual display/LED code that reacts to it is still
+yours, since that's inherently specific to your own hardware.
 
 ## Installation
 
@@ -39,7 +40,7 @@ manifest:
   projects:
     - name: zmk-bootloader-hold
       remote: vzhny
-      revision: main  # pin to a tag once one exists, don't track a branch long-term
+      revision: v1.0.0  # pin to a tag, don't track main long-term
     # ...your existing projects (zmk, etc.)
   self:
     path: config
@@ -126,6 +127,22 @@ them with whatever's free on your own keymap.**
             >;
         };
     };
+
+    /* Optional -- see "Reacting before the reboot fires" below. One node
+     * per watched position, same POSITION_LEFT/POSITION_RIGHT/
+     * BOOTLOADER_LAYER placeholders as above. */
+    bootloader_warn_left: bootloader_warn_left {
+        compatible = "zmk,bootloader-warn";
+        layer = <BOOTLOADER_LAYER>;
+        position = <POSITION_LEFT>;
+        latch;
+    };
+    bootloader_warn_right: bootloader_warn_right {
+        compatible = "zmk,bootloader-warn";
+        layer = <BOOTLOADER_LAYER>;
+        position = <POSITION_RIGHT>;
+        latch;
+    };
 };
 ```
 
@@ -134,15 +151,63 @@ costs no extra physical position, and — per the split note above — keeps
 the eventual `&bootloader_hold` invocation as a direct position binding
 rather than something routed through the combo system.
 
-## Roadmap
+## Reacting before the reboot fires
 
-A second, opt-in piece: a small listener that fires a ZMK event partway
-through the hold (e.g. at 1 second), so a keyboard with a display/LEDs can
-react before the actual reboot fires at 3 seconds, without this module
-needing to know anything about your hardware. Not built yet — the
-`wireless-klor-zmk-config` version of this currently does it with bespoke,
-project-specific code (its own BLE channel to notify the peripheral half),
-which doesn't generalize as-is. Tracked, not started.
+`bootloader_hold` itself has no hook for "partway through the hold" — it's
+a plain hold-tap, it only ever decides tap-or-hold at the end. If you want
+a display or LED to react before the actual 3-second reboot (e.g. an
+unmistakable warning that continuing will reboot that half), add a
+`zmk,bootloader-warn` node per watched position:
+
+```dts
+/ {
+    bootloader_warn_left: bootloader_warn_left {
+        compatible = "zmk,bootloader-warn";
+        layer = <BOOTLOADER_LAYER>;    /* only arms while this layer is active */
+        position = <POSITION_LEFT>;    /* same position bound to &bootloader_hold */
+        warn-after-ms = <1000>;        /* default is 1000 if omitted */
+        latch;                         /* see below */
+    };
+};
+```
+
+This raises a `zmk_bootloader_warning` event (`position`, `layer`, `active`,
+`timestamp`) that your own project subscribes to like any other ZMK event —
+no special cross-module wiring needed beyond including the header:
+
+```c
+#include <bootloader_hold/events.h>
+
+static int my_display_cb(const zmk_event_t *eh) {
+    const struct zmk_bootloader_warning *ev = as_zmk_bootloader_warning(eh);
+    if (ev == NULL) {
+        return ZMK_EV_EVENT_BUBBLE;
+    }
+    if (ev->active) {
+        /* show your warning */
+    } else {
+        /* only reachable if `latch` is unset on the node -- revert it */
+    }
+    return ZMK_EV_EVENT_BUBBLE;
+}
+
+ZMK_LISTENER(my_display, my_display_cb);
+ZMK_SUBSCRIPTION(my_display, zmk_bootloader_warning);
+```
+
+`latch`, on the devicetree node, decides what happens if the position is
+released before `bootloader_hold`'s own `tapping-term-ms` elapses (i.e. the
+real reboot never fires): with `latch` set, the event never fires with
+`active=false` — once warned, your listener should treat it as permanent
+until you decide otherwise (this is what `wireless-klor-zmk-config` does:
+the display stays stuck until an actual power cycle, as a deliberate signal
+that *something* happened, even if it wasn't a real reboot). Without
+`latch`, an `active=false` event fires immediately on release, and your
+listener is expected to revert whatever it did.
+
+This node only detects and announces; it has no effect on whether
+`&bootloader_hold` actually fires or not, and no dependency on it beyond
+watching the same position/layer — the two are configured independently.
 
 ## License
 
