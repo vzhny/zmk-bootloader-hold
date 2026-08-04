@@ -40,7 +40,7 @@ manifest:
   projects:
     - name: zmk-bootloader-hold
       remote: vzhny
-      revision: v1.0.0  # pin to a tag, don't track main long-term
+      revision: v1.1.0  # pin to a tag, don't track main long-term
     # ...your existing projects (zmk, etc.)
   self:
     path: config
