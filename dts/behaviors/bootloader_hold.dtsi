@@ -1,0 +1,57 @@
+/*
+ * Copyright (c) 2026 The ZMK Contributors
+ *
+ * SPDX-License-Identifier: MIT
+ */
+
+/* A 3-second hold before &bootloader fires; a quick tap does nothing.
+ * Meant to be bound at one or more real keymap positions -- reachable
+ * however you like (a conditional-layers chord, a dedicated layer, a
+ * &lt/&mo somewhere), the timing/no-accidental-tap behavior is the same
+ * either way. Safe to reference from multiple positions in the same
+ * keymap; hold-tap tracks state per invoking position independently.
+ *
+ * #binding-cells must be <2> -- zmk,behavior-hold-tap's own devicetree
+ * binding (two_param.yaml) hardcodes it as a const, non-negotiable even
+ * though both children here take 0 params of their own. Each child only
+ * ever receives ONE forwarded param (hold gets param1, tap gets param2 --
+ * see zmk's behavior_hold_tap.c press_hold_binding/press_tap_binding),
+ * which &bootloader/&none both just ignore -- so invocations need two
+ * dummy args, e.g. `&bootloader_hold 0 0`, that are inert placeholders,
+ * not real arguments.
+ *
+ * &bootloader has locality = BEHAVIOR_LOCALITY_EVENT_SOURCE (zmk's
+ * app/src/behaviors/behavior_reset.c): on a split keyboard it reboots
+ * whichever physical half the triggering keypress actually originated
+ * from, not always the central -- confirmed by reading zmk's own
+ * behavior.c dispatch (the BEHAVIOR_LOCALITY_EVENT_SOURCE case calls
+ * zmk_split_central_invoke_behavior() for non-local sources). That only
+ * holds for a binding resolved directly from a real keymap position,
+ * though -- combos always tag their synthesized event
+ * `.source = ZMK_POSITION_STATE_CHANGE_SOURCE_LOCAL` (see zmk's
+ * combo.c), which would make a combo-bound &bootloader always reboot the
+ * central regardless of which half's keys formed the combo. If you want
+ * per-half bootloader entry on a split board, bind bootloader_hold
+ * directly at real positions -- reach the layer/position some other way
+ * (conditional-layers, a dedicated layer entered via &mo/&lt), not via a
+ * combo. Hold-tap itself preserves the original event's source when it
+ * fires its hold binding (behavior_hold_tap.c replays
+ * `.source = hold_tap->source`), so wrapping &bootloader in this
+ * hold-tap doesn't break that routing.
+ *
+ * See this repo's README for the reasoning behind picking 3000ms and
+ * hold-preferred, and for a worked example of wiring this into a real
+ * keymap (an "arm" layer + conditional-layers chord, matching the
+ * pattern this was extracted from). */
+
+/ {
+    behaviors {
+        bootloader_hold: bootloader_hold {
+            compatible = "zmk,behavior-hold-tap";
+            #binding-cells = <2>;
+            flavor = "hold-preferred";
+            tapping-term-ms = <3000>;
+            bindings = <&bootloader>, <&none>;
+        };
+    };
+};
